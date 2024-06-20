@@ -18,8 +18,13 @@ cd emsdk
 ./emsdk activate latest
 ```
 
-## Inspiration
+## http-server
+For testing
+```
+npm i -g http-server
+```
 
-Inspired by https://github.com/webaverse-studios/CharacterCreator
-WIP images from https://graphicmama.com/blog/free-mouth-shapes-character-animator-puppet/
+# Thanks
+- Inspired by https://github.com/webaverse-studios/CharacterCreator
+- WIP images from https://graphicmama.com/blog/free-mouth-shapes-character-animator-puppet/
 
