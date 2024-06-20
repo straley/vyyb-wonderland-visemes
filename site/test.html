@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Real-Time Lip Sync</title>
+</head>
+<body>
+    <h1>Real-Time Lip Sync</h1>
+    <button onclick="startMicrophone()">Start Microphone</button>
+    <br/>
+    <br/>
+    <div id="oh">&nbsp;</div><br/>
+    <div id="ah">&nbsp;</div><br/>
+    <div id="ee">&nbsp;</div><br/>
+
+    <script>
+        let audioContext;
+        let analyser;
+        let dataArray;
+
+        async function startMicrophone() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioContext = new AudioContext();
+            const source = audioContext.createMediaStreamSource(stream);
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            dataArray = new Float32Array(analyser.frequencyBinCount);
+            source.connect(analyser);
+            analyzeAudio();
+        }
+
+        function analyzeAudio() {
+            analyser.getFloatFrequencyData(dataArray);
+            const visemeData = detectVisemes(dataArray);
+            updateAvatar(visemeData);
+            requestAnimationFrame(analyzeAudio);
+        }
+
+        function detectVisemes(spectrum) {
+            // Define frequency bins for different visemes
+            const boundingFrequencyLow = [0, 400, 560, 2400, 4800];
+            const boundingFrequencyHigh = [0, 500, 700, 3000, 6000];
+            const FFT_SIZE = 1024;
+            const samplingFrequency = 44100;
+
+            const indicesFrequencyLow = boundingFrequencyLow.map(freq => Math.round(((2 * FFT_SIZE) / samplingFrequency) * freq));
+            const indicesFrequencyHigh = boundingFrequencyHigh.map(freq => Math.round(((2 * FFT_SIZE) / samplingFrequency) * freq));
+
+            const sensitivity_threshold = 0.5;
+            const stPSD = new Float32Array(spectrum.length);
+            for (let i = 0; i < spectrum.length; i++) {
+                stPSD[i] = sensitivity_threshold + (spectrum[i] + 20) / 140;
+            }
+
+            const energyBinLow = new Float32Array(boundingFrequencyLow.length);
+            const energyBinHigh = new Float32Array(boundingFrequencyHigh.length);
+
+            for (let m = 0; m < boundingFrequencyLow.length - 1; m++) {
+                for (let j = indicesFrequencyLow[m]; j <= indicesFrequencyLow[m + 1]; j++) {
+                    if (stPSD[j] > 0) energyBinLow[m] += stPSD[j];
+                }
+                energyBinLow[m] /= (indicesFrequencyLow[m + 1] - indicesFrequencyLow[m]);
+            }
+
+            for (let m = 0; m < boundingFrequencyHigh.length - 1; m++) {
+                for (let j = indicesFrequencyHigh[m]; j <= indicesFrequencyHigh[m + 1]; j++) {
+                    if (stPSD[j] > 0) energyBinHigh[m] += stPSD[j];
+                }
+                energyBinHigh[m] /= (indicesFrequencyHigh[m + 1] - indicesFrequencyHigh[m]);
+            }
+
+            const oh = Math.max(energyBinHigh[1], energyBinLow[1]) > 0.2
+                ? 1 - 2 * Math.max(energyBinLow[2], energyBinHigh[2])
+                : (1 - 2 * Math.max(energyBinLow[2], energyBinHigh[2])) * 5 * Math.max(energyBinLow[1], energyBinHigh[1]);
+
+            const ah = 3 * Math.max(energyBinLow[3], energyBinHigh[3]);
+            const ee = 0.8 * (Math.max(energyBinLow[1], energyBinHigh[1]) - Math.max(energyBinLow[3], energyBinHigh[3]));
+
+
+
+            return { oh, ee, ah };
+        }
+
+        function updateAvatar(visemeData) {
+            // Assuming `avatar` is your VRM avatar instance
+
+            document.getElementById('oh').style.width = `${visemeData.oh * 200}px`;
+            document.getElementById('ah').style.width = `${visemeData.ah * 200}px`;
+            document.getElementById('ee').style.width = `${visemeData.ee * 200}px`;
+
+            // avatar.vrm.expressionManager.setValue(VRMExpressionPresetName.Oh, visemeData.oh);
+            // avatar.vrm.expressionManager.setValue(VRMExpressionPresetName.Ah, visemeData.ah);
+            // avatar.vrm.expressionManager.setValue(VRMExpressionPresetName.Ee, visemeData.ee);
+            //avatar.vrm.expressionManager.update(0);  // 0 is the delta time for the update
+        }
+    </script>
+
+    <style>
+        #oh, #ah, #ee {
+            background-color: blue;
+            display: inline-block;
+            clear: both;
+            height: 10px;
+            min-width: 1px;
+        }
+    </style>
+</body>
+</html>

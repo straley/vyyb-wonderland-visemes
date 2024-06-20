@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "build": "cd emsdk && . ./emsdk_env.sh && emcc ../src/viseme_detection.c -O3 -s WASM=1 -s EXPORTED_FUNCTIONS=\"['_malloc', '_free', '_detectVisemes']\" -o ../build/viseme_detection.js && cp ../build/viseme_detection.wasm ../site/" ,
+    "start": "http-server ./site 8080"
+  },
+  "dependencies": {
+    "http-server": "^14.1.1"
+  }
+}

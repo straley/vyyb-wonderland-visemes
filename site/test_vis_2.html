@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Real-Time Lip Sync</title>
+</head>
+<body>
+    <h1>Real-Time Lip Sync</h1>
+    <button onclick="startMicrophone()">Start Microphone</button>
+    <br/>
+    <br/>
+    <div id="oh">&nbsp;</div><div id="ohnum"></div><br/>
+    <div id="ah">&nbsp;</div><div id="ahnum"></div><br/>
+    <div id="ee">&nbsp;</div><div id="eenum"></div><br/>
+    <div id="phoneme">&nbsp;</div><br/>
+
+    <script src="viseme_detection.js"></script>
+    <script>
+        let audioContext;
+        let analyser;
+        let dataArray;
+
+        function startMicrophone() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    audioContext = new AudioContext();
+                    const source = audioContext.createMediaStreamSource(stream);
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 2048;
+                    dataArray = new Float32Array(analyser.frequencyBinCount);
+                    source.connect(analyser);
+                    analyzeAudio();
+                })
+                .catch(error => {
+                    console.error('Error accessing microphone:', error);
+                });
+        }
+
+        function analyzeAudio() {
+            analyser.getFloatFrequencyData(dataArray);
+            const visemeData = detectVisemes(dataArray);
+            const phoneme = classifyPhoneme(visemeData);
+            updateAvatar(visemeData, phoneme);
+            requestAnimationFrame(analyzeAudio);
+        }
+
+        function detectVisemes(spectrum) {
+            if (!Module._malloc || !Module._detectVisemes) {
+                console.error("Wasm module not properly loaded or missing functions");
+                return { oh: 0, ah: 0, ee: 0 };
+            }
+
+            const visemes = new Float32Array(3);
+            const spectrumPtr = Module._malloc(spectrum.length * spectrum.BYTES_PER_ELEMENT);
+            const visemesPtr = Module._malloc(visemes.length * visemes.BYTES_PER_ELEMENT);
+
+            Module.HEAPF32.set(spectrum, spectrumPtr / spectrum.BYTES_PER_ELEMENT);
+            Module._detectVisemes(spectrumPtr, spectrum.length, visemesPtr);
+
+            visemes.set(Module.HEAPF32.subarray(visemesPtr / visemes.BYTES_PER_ELEMENT, visemesPtr / visemes.BYTES_PER_ELEMENT + 3));
+
+            Module._free(spectrumPtr);
+            Module._free(visemesPtr);
+
+            return {
+                oh: visemes[0],
+                ah: visemes[1],
+                ee: visemes[2],
+            };
+        }
+
+        function classifyPhoneme(visemeData) {
+            const { oh, ah, ee } = visemeData;
+            const phonemePtr = Module._classifyPhoneme(oh, ah, ee);
+            return UTF8ArrayToString(Module.HEAPU8, phonemePtr);
+        }
+
+        function UTF8ArrayToString(heap, idx, maxBytesToRead) {
+            const endIdx = idx + maxBytesToRead;
+            let str = '';
+            while (idx < endIdx) {
+                const u0 = heap[idx++];
+                if (!u0) break;
+                if (!(u0 & 0x80)) { str += String.fromCharCode(u0); continue; }
+                const u1 = heap[idx++] & 63;
+                if ((u0 & 0xE0) == 0xC0) {
+                    str += String.fromCharCode(((u0 & 31) << 6) | u1);
+                    continue;
+                }
+                const u2 = heap[idx++] & 63;
+                if ((u0 & 0xF0) == 0xE0) {
+                    str += String.fromCharCode(((u0 & 15) << 12) | (u1 << 6) | u2);
+                    continue;
+                }
+                const u3 = heap[idx++] & 63;
+                if ((u0 & 0xF8) == 0xF0) {
+                    str += String.fromCharCode(((u0 & 7) << 18) | (u1 << 12) | (u2 << 6) | u3);
+                    continue;
+                }
+            }
+            return str;
+        }
+
+        function updateAvatar(visemeData, phoneme) {
+            document.getElementById('oh').style.width = `${visemeData.oh * 200}px`;
+            document.getElementById('ah').style.width = `${visemeData.ah * 200}px`;
+            document.getElementById('ee').style.width = `${visemeData.ee * 200}px`;
+            document.getElementById('ohnum').innerText = `${Math.floor(visemeData.oh * 100)}`;
+            document.getElementById('ahnum').innerText = `${Math.floor(visemeData.ah * 100)}`;
+            document.getElementById('eenum').innerText = `${Math.floor(visemeData.ee * 100)}`;
+            document.getElementById('phoneme').innerText = phoneme;
+        }
+
+        window.Module = {
+            onRuntimeInitialized: function() {
+                console.log('Wasm module loaded');
+                startMicrophone();
+            }
+        };
+    </script>
+
+    <style>
+        #oh, #ah, #ee {
+            background-color: blue;
+            display: inline-block;
+            height: 10px;
+            min-width: 1px;
+        }
+        #ohnum, #ahnum, #eenum {
+            display: inline-block;
+        }
+    </style>
+</body>
+</html>

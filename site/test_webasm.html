@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Real-Time Lip Sync</title>
+</head>
+<body>
+    <h1>Real-Time Lip Sync</h1>
+    <button onclick="startMicrophone()">Start Microphone</button>
+    <br/>
+    <br/>
+    <div id="oh">&nbsp;</div><div id="ohnum"></div><br/>
+    <div id="ah">&nbsp;</div><div id="ahnum"></div><br/>
+    <div id="ee">&nbsp;</div><div id="eenum"></div><br/>
+    <div id="phoneme">&nbsp;</div><br/><br/><br/><br/>
+    <div class="image" id="image_ah"><img src="ah.png"></div>
+    <div class="image" id="image_ee"><img src="ee.png"></div>
+    <div class="image" id="image_f"><img src="f.png"></div>
+    <div class="image" id="image_oo"><img src="oo.png"></div>
+    <div class="image" id="image_unknown"><img src="unknown.png"></div>
+    <div class="image" id="image_quiet"><img src="quiet.png"></div>
+
+    <script src="viseme_detection.js"></script>
+    <script>
+        let audioContext;
+        let analyser;
+        let dataArray;
+        let lastImage = "image_quiet";
+
+        async function startMicrophone() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioContext = new AudioContext();
+            const source = audioContext.createMediaStreamSource(stream);
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            dataArray = new Float32Array(analyser.frequencyBinCount);
+            source.connect(analyser);
+            analyzeAudio();
+        }
+
+        function analyzeAudio() {
+            analyser.getFloatFrequencyData(dataArray);
+            const visemeData = detectVisemes(dataArray);
+            const phoneme = classifyPhoneme(visemeData);
+            updateAvatar(visemeData, phoneme);
+            requestAnimationFrame(analyzeAudio);
+        }
+
+        function detectVisemes(spectrum) {
+            if (!Module._malloc || !Module._detectVisemes) {
+                console.error("Wasm module not properly loaded or missing functions");
+                return { oh: 0, ah: 0, ee: 0 };
+            }
+
+            const visemes = new Float32Array(3);
+            const spectrumPtr = Module._malloc(spectrum.length * spectrum.BYTES_PER_ELEMENT);
+            const visemesPtr = Module._malloc(visemes.length * visemes.BYTES_PER_ELEMENT);
+
+            Module.HEAPF32.set(spectrum, spectrumPtr / spectrum.BYTES_PER_ELEMENT);
+            Module._detectVisemes(spectrumPtr, spectrum.length, visemesPtr);
+
+            visemes.set(Module.HEAPF32.subarray(visemesPtr / visemes.BYTES_PER_ELEMENT, visemesPtr / visemes.BYTES_PER_ELEMENT + 3));
+
+            Module._free(spectrumPtr);
+            Module._free(visemesPtr);
+
+            return {
+                oh: visemes[0],
+                ah: visemes[1],
+                ee: visemes[2],
+            };
+        }
+
+        function classifyPhoneme(visemeData) {
+            const { oh, ah, ee } = visemeData;
+            const phonemePtr = Module._classifyPhoneme(oh, ah, ee);
+            return UTF8ToString(phonemePtr);
+        }
+
+        function updateAvatar(visemeData, phoneme) {
+            document.getElementById('oh').style.width = `${visemeData.oh * 200}px`;
+            document.getElementById('ah').style.width = `${visemeData.ah * 200}px`;
+            document.getElementById('ee').style.width = `${visemeData.ee * 200}px`;
+            document.getElementById('ohnum').innerText = `${Math.floor(visemeData.oh * 100)}`;
+            document.getElementById('ahnum').innerText = `${Math.floor(visemeData.ah * 100)}`;
+            document.getElementById('eenum').innerText = `${Math.floor(visemeData.ee * 100)}`;
+            document.getElementById('phoneme').innerText = phoneme;
+
+            let newImage = lastImage
+            switch(phoneme) {
+                case "oo":
+                    newImage = "image_oo";
+                    break;
+                case "oh_ah":
+                case "eh":
+                    newImage = "image_ah";
+                    break;
+                case "oh_ah":
+                    newImage = "image_ah";
+                    break;
+                case "f":
+                case "sh":
+                case "v":
+                    newImage = "image_f";
+                    break;
+                case "quiet":
+                    newImage = "image_quiet";
+                    break;
+                default:
+                    newImage = "image_unknown"
+            }
+            if (newImage !== lastImage) {
+                document.getElementById(newImage).style.display = "block";
+                document.getElementById(lastImage).style.display = "none";
+                lastImage = newImage
+            }
+        }
+
+        function UTF8ToString(ptr) {
+            let str = '';
+            let char;
+            while ((char = Module.HEAPU8[ptr++]) !== 0) {
+                str += String.fromCharCode(char);
+            }
+            return str;
+        }
+    </script>
+
+    <style>
+        #oh, #ah, #ee {
+            background-color: blue;
+            display: inline-block;
+            height: 10px;
+            min-width: 1px;
+        }
+        #ohnum, #ahnum, #eenum {
+            display: inline-block;
+        }
+        .image {
+            display: none;
+        }
+        #image_quiet {
+            display: inline;
+        }
+    </style>
+</body>
+</html>
